@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sprachtrainer</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Segoe UI;background:#121212;color:white}
+.card{background:#1e1e1e;padding:16px;margin:12px auto;max-width:900px;border-radius:14px}
+.hidden{display:none}
+button{padding:10px 14px;border:none;border-radius:10px;background:#4A6CF7;color:white;font-size:16px;cursor:pointer;}
+button.ghost{background:#555}
+input,select{width:100%;padding:10px;background:#222;color:white;border:1px solid #333;border-radius:8px;margin-bottom:6px}
+table{width:100%;border-collapse:collapse}
+th,td{border-bottom:1px solid #333;padding:6px;text-align:left}
+.flex{display:flex;gap:8px;flex-wrap:wrap}
+.success{color:#0f0;font-weight:bold}
+.fail{color:#f33;font-weight:bold}
+.stats{font-size:14px;color:#aaa}
+@media(max-width:700px){button{width:100%}}
+</style>
+</head>
+<body>
+
+<!-- ============ AUTH ============ -->
+<div id="home" class="card">
+<h2>Sprachtrainer</h2>
+<button onclick="show('login')">Login</button>
+<button onclick="show('signup')">Registrieren</button>
+</div>
+
+<div id="login" class="card hidden">
+<h3>Login</h3>
+<input id="loginUser" placeholder="Benutzername">
+<input id="loginPass" type="password" placeholder="Passwort">
+<button onclick="login()">Login</button>
+<div id="loginMsg"></div>
+<button class="ghost" onclick="show('home')">Zurück</button>
+</div>
+
+<div id="signup" class="card hidden">
+<h3>Registrieren</h3>
+<input id="signUser" placeholder="Benutzername">
+<input id="signPass" type="password" placeholder="Passwort">
+<button onclick="signup()">Registrieren</button>
+<div id="signMsg"></div>
+<button class="ghost" onclick="show('home')">Zurück</button>
+</div>
+
+<!-- ============ MENU ============ -->
+<div id="menu" class="card hidden">
+<h2 id="hello"></h2>
+<button onclick="openVocab()">Vokabeltrainer</button>
+<button onclick="openConj()">Konjugation</button>
+<button class="ghost" onclick="logout()">Logout</button>
+</div>
+
+<!-- ============ VOCAB ============ -->
+<div id="vocab" class="card hidden">
+<h2>Vokabeltrainer</h2>
+
+<label>Block:</label>
+<select id="vocabBlock" onchange="changeVocabBlock()"></select>
+
+<div class="flex">
+<button onclick="addVocabBlock()">Block +</button>
+<button onclick="renameVocabBlock()">Umbenennen</button>
+<button onclick="deleteVocabBlock()">Löschen</button>
+</div>
+
+<table id="vocabTable">
+<thead><tr><th>Deutsch</th><th>Fremdsprache</th><th></th></tr></thead>
+<tbody></tbody>
+</table>
+
+<div class="flex">
+<button onclick="addVocabRow()">Neue Zeile</button>
+<button onclick="saveVocab()">Speichern</button>
+<button onclick="startVocabQuiz()">Quiz</button>
+<button class="ghost" onclick="show('menu')">Zurück</button>
+</div>
+
+<div id="vocabQuiz" class="hidden">
+<h3 id="vocabQ"></h3>
+<input id="vocabA" placeholder="Antwort (Enter)">
+<div id="vocabR"></div>
+<div class="stats" id="vocabStats"></div>
+<button onclick="nextVocab()">Weiter</button>
+<button class="ghost" onclick="endVocabQuiz()">Quiz beenden</button>
+</div>
+</div>
+
+<script>
+/* ========= BASIS ========= */
+const $=id=>document.getElementById(id);
+function show(id){
+  document.querySelectorAll(".card").forEach(c=>c.classList.add("hidden"));
+  const el = $(id);
+  if(el) el.classList.remove("hidden");
+}
+
+/* ========= AUTH ========= */
+let users=JSON.parse(localStorage.getItem("users")||"{}");
+let currentUser=null;
+
+function signup(){
+  let u=$("signUser").value.trim(),p=$("signPass").value.trim();
+  if(!u||!p){$("signMsg").innerText="Fehlende Eingabe";return;}
+  if(users[u]){$("signMsg").innerText="Benutzer existiert";return;}
+  users[u]=p;
+  localStorage.setItem("users",JSON.stringify(users));
+  localStorage.setItem("vocabBlocks_"+u,JSON.stringify(["Standard"]));
+  ["de","fr","en"].forEach(l=>{
+    localStorage.setItem("conjBlocks_"+u+"_"+l,JSON.stringify(["Block 1"]));
+    localStorage.setItem("irregBlocks_"+u+"_"+l,JSON.stringify(["Unregelmäßig"]));
+  });
+  $("signMsg").innerText="Registriert! Jetzt einloggen.";
+}
+
+function login(){
+  let u=$("loginUser").value.trim(),p=$("loginPass").value.trim();
+  if(users[u]!==p){$("loginMsg").innerText="Falsche Daten";return;}
+  currentUser=u;
+  $("hello").innerText="Hallo "+u;
+  show("menu");
+}
+
+function logout(){currentUser=null;show("home");}
+
+/* ========= VOCAB ========= */
+let vocabBlocks=[],currentBlock="",vocabData=[];
+let stats={right:0,wrong:0};
+
+function openVocab(){
+  show("vocab");
+  loadVocabBlocks();
+}
+
+function loadVocabBlocks(){
+  vocabBlocks=JSON.parse(localStorage.getItem("vocabBlocks_"+currentUser)||'["Standard"]');
+  const sel=$("vocabBlock");
+  sel.innerHTML="";
+  vocabBlocks.forEach(b=>{
+    let o=document.createElement("option");
+    o.value=o.text=b;
+    sel.appendChild(o);
+  });
+  currentBlock=sel.value=vocabBlocks[0];
+  loadVocab();
+}
+
+function changeVocabBlock(){currentBlock=$("vocabBlock").value;loadVocab();}
+function addVocabBlock(){let n=prompt("Blockname");if(!n)return;vocabBlocks.push(n);localStorage.setItem("vocabBlocks_"+currentUser,JSON.stringify(vocabBlocks));currentBlock=n;loadVocabBlocks();}
+function renameVocabBlock(){let n=prompt("Neuer Name",currentBlock);if(!n)return;let i=vocabBlocks.indexOf(currentBlock);vocabBlocks[i]=n;localStorage.setItem("vocabBlocks_"+currentUser,JSON.stringify(vocabBlocks));localStorage.setItem("vocab_"+currentUser+"_"+n,localStorage.getItem("vocab_"+currentUser+"_"+currentBlock));localStorage.removeItem("vocab_"+currentUser+"_"+currentBlock);currentBlock=n;loadVocabBlocks();}
+function deleteVocabBlock(){if(!confirm("Block löschen?"))return;localStorage.removeItem("vocab_"+currentUser+"_"+currentBlock);vocabBlocks=vocabBlocks.filter(b=>b!==currentBlock);localStorage.setItem("vocabBlocks_"+currentUser,JSON.stringify(vocabBlocks));currentBlock=vocabBlocks[0];loadVocabBlocks();}
+
+function addVocabRow(d="",f=""){
+  let r=$("vocabTable").querySelector("tbody").insertRow();
+  r.insertCell(0).innerHTML=`<input value="${d}">`;
+  r.insertCell(1).innerHTML=`<input value="${f}">`;
+  r.insertCell(2).innerHTML=`<button onclick="this.parentNode.parentNode.remove()">X</button>`;
+}
+
+function loadVocab(){
+  vocabData=JSON.parse(localStorage.getItem("vocab_"+currentUser+"_"+currentBlock)||"[]");
+  const tbody=$("vocabTable").querySelector("tbody");
+  tbody.innerHTML="";
+  vocabData.forEach(v=>addVocabRow(v.d,v.f));
+  if(!vocabData.length)addVocabRow();
+}
+
+function saveVocab(){
+  vocabData=[];
+  for(let r of $("vocabTable").querySelector("tbody").rows){
+    let d=r.cells[0].querySelector("input").value.trim();
+    let f=r.cells[1].querySelector("input").value.trim();
+    if(d&&f)vocabData.push({d,f});
+  }
+  localStorage.setItem("vocab_"+currentUser+"_"+currentBlock,JSON.stringify(vocabData));
+  alert("Gespeichert");
+}
+
+/* ========= VOCAB QUIZ ========= */
+let quizWord=null;
+function startVocabQuiz(){
+  if(!vocabData.length)return alert("Keine Vokabeln");
+  stats={right:0,wrong:0};
+  $("vocabTable").classList.add("hidden");
+  $("vocabQuiz").classList.remove("hidden");
+  nextVocab();
+}
+function nextVocab(){
+  quizWord=vocabData[Math.floor(Math.random()*vocabData.length)];
+  $("vocabQ").innerText="Übersetze: "+quizWord.d;
+  $("vocabA").value="";
+  $("vocabR").innerText="";
+  updateStats();
+}
+$("vocabA").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){
+    if($("vocabA").value.trim().toLowerCase()===quizWord.f.toLowerCase()){
+      stats.right++;
+      $("vocabR").innerHTML='<span class="success">✔ Richtig</span>';
+    }else{
+      stats.wrong++;
+      $("vocabR").innerHTML='<span class="fail">✘ '+quizWord.f+'</span>';
+    }
+    updateStats();
+  }
+});
+function updateStats(){
+  $("vocabStats").innerText=`Richtig: ${stats.right} | Falsch: ${stats.wrong}`;
+  localStorage.setItem("stats_"+currentUser+"_vocab",JSON.stringify(stats));
+}
+function endVocabQuiz(){
+  $("vocabQuiz").classList.add("hidden");
+  $("vocabTable").classList.remove("hidden");
+  alert(`Quiz beendet\nRichtig: ${stats.right}\nFalsch: ${stats.wrong}`);
+}
+</script>
+<!-- ============ KONJUGATION ============ -->
+<div id="conj" class="card hidden">
+<h2>Konjugationstrainer</h2>
+
+<label>Sprache:</label>
+<select id="conjLang" onchange="changeConjLang()">
+  <option value="de">Deutsch</option>
+  <option value="fr">Französisch</option>
+  <option value="en">Englisch</option>
+</select>
+
+<label>Block:</label>
+<select id="conjBlock" onchange="changeConjBlock()"></select>
+
+<div class="flex">
+<button onclick="addConjBlock()">Block +</button>
+<button onclick="renameConjBlock()">Umbenennen</button>
+<button onclick="deleteConjBlock()">Löschen</button>
+<button onclick="toggleIrregular()">Unregelmäßige</button>
+</div>
+
+<table id="conjTable">
+  <thead><tr><th>Infinitiv</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th></th></tr></thead>
+  <tbody></tbody>
+</table>
+
+<div class="flex">
+<button onclick="addConjRow()">Neue Zeile</button>
+<button onclick="saveConj()">Speichern</button>
+<button onclick="startConjQuiz()">Quiz</button>
+<button class="ghost" onclick="show('menu')">Zurück</button>
+</div>
+
+<div id="conjQuiz" class="hidden">
+<h3 id="conjQ"></h3>
+<input id="conjA" placeholder="Antwort (Enter)">
+<div id="conjR"></div>
+<div class="stats" id="conjStats"></div>
+<button onclick="nextConj()">Weiter</button>
+<button class="ghost" onclick="endConjQuiz()">Quiz beenden</button>
+</div>
+</div>
+
+<script>
+/* ========= KONJUGATION ========= */
+let conjLang="de";
+let conjMode="regular"; // regular|irregular
+let conjBlocks=[];
+let currentConjBlock="";
+let conjVerbs=[];
+let conjStats={right:0,wrong:0};
+let quizConj=null;
+
+const PERSON_KEYS=["p1s","p2s","p3s","p1p","p2p","p3p"];
+const PERSON_LABELS={
+  de:["ich","du","er/sie/es","wir","ihr","sie"],
+  fr:["je","tu","il/elle","nous","vous","ils/elles"],
+  en:["I","you","he/she/it","we","you (pl)","they"]
+};
+
+/* ====== BLOCKS ====== */
+function blockKey(){return `${conjMode}Blocks_${currentUser}_${conjLang}`;}
+function dataKey(){return `${conjMode}_${currentUser}_${conjLang}_${currentConjBlock}`;}
+
+function openConj(){show('conj');loadConjBlocks();}
+function loadConjBlocks(){
+  conjBlocks=JSON.parse(localStorage.getItem(blockKey())||'["Standard"]');
+  const sel=$("conjBlock");sel.innerHTML="";
+  conjBlocks.forEach(b=>{let o=document.createElement("option");o.value=o.text=b;sel.appendChild(o);});
+  currentConjBlock=sel.value=conjBlocks[0];
+  renderConj();
+}
+
+function addConjBlock(){let n=prompt("Blockname");if(!n)return;conjBlocks.push(n);localStorage.setItem(blockKey(),JSON.stringify(conjBlocks));currentConjBlock=n;loadConjBlocks();}
+function renameConjBlock(){let n=prompt("Neuer Name",currentConjBlock);if(!n)return;let i=conjBlocks.indexOf(currentConjBlock);conjBlocks[i]=n;localStorage.setItem(blockKey(),JSON.stringify(conjBlocks));localStorage.setItem(dataKey().replace(currentConjBlock,n),localStorage.getItem(dataKey()));localStorage.removeItem(dataKey());currentConjBlock=n;loadConjBlocks();}
+function deleteConjBlock(){if(!confirm("Block löschen?"))return;localStorage.removeItem(dataKey());conjBlocks=conjBlocks.filter(b=>b!==currentConjBlock);localStorage.setItem(blockKey(),JSON.stringify(conjBlocks));currentConjBlock=conjBlocks[0];loadConjBlocks();}
+function toggleIrregular(){conjMode=conjMode==="regular"?"irregular":"regular";alert(conjMode==="irregular"?"Unregelmäßige Verben":"Reguläre Verben");loadConjBlocks();}
+
+function changeConjLang(){conjLang=$("conjLang").value;loadConjBlocks();}
+function changeConjBlock(){currentConjBlock=$("conjBlock").value;renderConj();}
+
+/* ====== TABLE ====== */
+function renderConj(){
+  renderHeader();
+  conjVerbs=JSON.parse(localStorage.getItem(dataKey())||"[]");
+  const tb=$("conjTable").querySelector("tbody");tb.innerHTML="";
+  conjVerbs.forEach(v=>addConjRow(v));
+  if(!conjVerbs.length)addConjRow();
+}
+
+function renderHeader(){
+  const h=PERSON_LABELS[conjLang].map(p=>`<th>${p}</th>`).join("");
+  $("conjTable").querySelector("thead").innerHTML=`<tr><th>Infinitiv</th>${h}<th></th></tr>`;
+}
+
+function addConjRow(v={inf:"",p1s:"",p2s:"",p3s:"",p1p:"",p2p:"",p3p:""}){
+  const r=$("conjTable").querySelector("tbody").insertRow();
+  r.insertCell(0).innerHTML=`<input value="${v.inf}">`;
+  PERSON_KEYS.forEach((k,i)=>r.insertCell(i+1).innerHTML=`<input value="${v[k]||''}">`);
+  r.insertCell(7).innerHTML=
+    (conjMode==="regular"?`<button onclick="autoConj(this)">Auto</button>`:"")+`<button onclick="this.parentNode.parentNode.remove()">X</button>`;
+}
+
+/* ====== AUTO ====== */
+function autoConj(btn){
+  const r=btn.parentNode.parentNode;
+  const inf=r.cells[0].querySelector("input").value.trim();
+  if(!inf)return;
+  if(conjLang==="de"){let s=inf.replace(/en$|n$/,"");["e","st","t","en","t","en"].forEach((e,i)=>r.cells[i+1].querySelector("input").value=s+e);}
+  if(conjLang==="fr"){if(!inf.endsWith("er"))return alert("Nur -er Verben");let s=inf.slice(0,-2);["e","es","e","ons","ez","ent"].forEach((e,i)=>r.cells[i+1].querySelector("input").value=PERSON_LABELS.fr[i]+" "+s+e);}
+  if(conjLang==="en"){["I","you","he/she/it","we","you","they"].forEach((p,i)=>r.cells[i+1].querySelector("input").value=p+" "+(i===2?inf+"s":inf));}
+}
+
+/* ====== SAVE ====== */
+function saveConj(){conjVerbs=[];for(const r of $("conjTable").querySelector("tbody").rows){const v={inf:r.cells[0].querySelector("input").value.trim()};PERSON_KEYS.forEach((k,i)=>v[k]=r.cells[i+1].querySelector("input").value.trim());if(v.inf)conjVerbs.push(v);}localStorage.setItem(dataKey(),JSON.stringify(conjVerbs));alert("Gespeichert");}
+
+/* ====== QUIZ ====== */
+function startConjQuiz(){
+  if(!conjVerbs.length)return alert("Keine Verben");
+  conjStats={right:0,wrong:0};
+  $("conjTable").classList.add("hidden");
+  $("conjQuiz").classList.remove("hidden");
+  nextConj();
+}
+
+function nextConj(){
+  const v=conjVerbs[Math.floor(Math.random()*conjVerbs.length)];
+  const i=Math.floor(Math.random()*6);
+  quizConj={v,i};
+  $("conjQ").innerText=`${PERSON_LABELS[conjLang][i]} von "${v.inf}"`;
+  $("conjA").value="";
+  $("conjR").innerText="";
+  updateConjStats();
+}
+
+$("conjA").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){
+    const ok=$("conjA").value.trim().toLowerCase()===quizConj.v[PERSON_KEYS[quizConj.i]].toLowerCase();
+    ok?conjStats.right++:conjStats.wrong++;
+    $("conjR").innerHTML=ok?'<span class="success">✔ Richtig</span>':'<span class="fail">✘ '+quizConj.v[PERSON_KEYS[quizConj.i]]+'</span>';
+    updateConjStats();
+  }
+});
+
+function updateConjStats(){$("conjStats").innerText=`Richtig: ${conjStats.right} | Falsch: ${conjStats.wrong}`;}
+
+function endConjQuiz(){
+  $("conjQuiz").classList.add("hidden");
+  $("conjTable").classList.remove("hidden");
+  alert(`Quiz beendet\nRichtig: ${conjStats.right}\nFalsch: ${conjStats.wrong}`);
+}
+</script>
+<!-- ============ KONJUGATION ZEITEN ============ -->
+<div id="conjTense" class="card hidden">
+<h2>Konjugation nach Zeit</h2>
+
+<label>Sprache:</label>
+<select id="tenseLang" onchange="loadTenseBlocks()">
+  <option value="de">Deutsch</option>
+  <option value="fr">Französisch</option>
+  <option value="en">Englisch</option>
+</select>
+
+<label>Zeit:</label>
+<select id="tenseSelect" onchange="renderTense()">
+  <option value="present">Präsens / Présent / Present</option>
+  <option value="past">Präteritum / Passé Composé / Past</option>
+  <option value="future">Futur / Futur / Future</option>
+</select>
+
+<label>Block:</label>
+<select id="tenseBlock" onchange="changeTenseBlock()"></select>
+
+<div class="flex">
+<button onclick="addTenseBlock()">Block +</button>
+<button onclick="renameTenseBlock()">Umbenennen</button>
+<button onclick="deleteTenseBlock()">Löschen</button>
+<button onclick="toggleTenseIrregular()">Unregelmäßige</button>
+</div>
+
+<table id="tenseTable">
+<thead><tr><th>Infinitiv</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th></th></tr></thead>
+<tbody></tbody>
+</table>
+
+<div class="flex">
+<button onclick="addTenseRow()">Neue Zeile</button>
+<button onclick="saveTense()">Speichern</button>
+<button onclick="startTenseQuiz()">Quiz</button>
+<button class="ghost" onclick="show('menu')">Zurück</button>
+</div>
+
+<div id="tenseQuiz" class="hidden">
+<h3 id="tenseQ"></h3>
+<input id="tenseA" placeholder="Antwort (Enter)">
+<div id="tenseR"></div>
+<div class="stats" id="tenseStats"></div>
+<button onclick="nextTense()">Weiter</button>
+<button class="ghost" onclick="endTenseQuiz()">Quiz beenden</button>
+</div>
+</div>
+
+<script>
+/* ========= KONJUGATION NACH ZEIT ========= */
+let tenseLang="de";
+let tenseMode="regular";
+let tenseTime="present";
+let tenseBlocks=[];
+let currentTenseBlock="";
+let tenseVerbs=[];
+let tenseStats={right:0,wrong:0};
+let quizTense=null;
+
+const TENSE_KEYS=["p1s","p2s","p3s","p1p","p2p","p3p"];
+const TENSE_LABELS={
+  de:["ich","du","er/sie/es","wir","ihr","sie"],
+  fr:["je","tu","il/elle","nous","vous","ils/elles"],
+  en:["I","you","he/she/it","we","you (pl)","they"]
+};
+
+/* ===== BLOCK & ZEIT ===== */
+function tenseBlockKey(){return `${tenseMode}Blocks_${currentUser}_${tenseLang}_${tenseTime}`;}
+function tenseDataKey(){return `${tenseMode}_${currentUser}_${tenseLang}_${tenseTime}_${currentTenseBlock}`;}
+
+function openTense(){show('conjTense');loadTenseBlocks();}
+function loadTenseBlocks(){
+  tenseBlocks=JSON.parse(localStorage.getItem(tenseBlockKey())||'["Standard"]');
+  const sel=$("tenseBlock");sel.innerHTML="";
+  tenseBlocks.forEach(b=>{let o=document.createElement("option");o.value=o.text=b;sel.appendChild(o);});
+  currentTenseBlock=sel.value=tenseBlocks[0];
+  renderTense();
+}
+
+function addTenseBlock(){let n=prompt("Blockname");if(!n)return;tenseBlocks.push(n);localStorage.setItem(tenseBlockKey(),JSON.stringify(tenseBlocks));currentTenseBlock=n;loadTenseBlocks();}
+function renameTenseBlock(){let n=prompt("Neuer Name",currentTenseBlock);if(!n)return;let i=tenseBlocks.indexOf(currentTenseBlock);tenseBlocks[i]=n;localStorage.setItem(tenseBlockKey(),JSON.stringify(tenseBlocks));localStorage.setItem(tenseDataKey().replace(currentTenseBlock,n),localStorage.getItem(tenseDataKey()));localStorage.removeItem(tenseDataKey());currentTenseBlock=n;loadTenseBlocks();}
+function deleteTenseBlock(){if(!confirm("Block löschen?"))return;localStorage.removeItem(tenseDataKey());tenseBlocks=tenseBlocks.filter(b=>b!==currentTenseBlock);localStorage.setItem(tenseBlockKey(),JSON.stringify(tenseBlocks));currentTenseBlock=tenseBlocks[0];loadTenseBlocks();}
+function toggleTenseIrregular(){tenseMode=tenseMode==="regular"?"irregular":"regular";alert(tenseMode==="irregular"?"Unregelmäßige Verben":"Reguläre Verben");loadTenseBlocks();}
+function changeTenseBlock(){currentTenseBlock=$("tenseBlock").value;renderTense();}
+$("tenseLang").onchange=function(){tenseLang=this.value;loadTenseBlocks();}
+$("tenseSelect").onchange=function(){tenseTime=this.value;loadTenseBlocks();}
+
+/* ===== TABLE ===== */
+function renderTense(){
+  const tb=$("tenseTable").querySelector("tbody");tb.innerHTML="";
+  tenseVerbs=JSON.parse(localStorage.getItem(tenseDataKey())||"[]");
+  tenseVerbs.forEach(v=>addTenseRow(v));
+  if(!tenseVerbs.length)addTenseRow();
+  $("tenseTable").querySelector("thead").innerHTML=`<tr><th>Infinitiv</th>${TENSE_LABELS[tenseLang].map(p=>"<th>"+p+"</th>").join("")}<th></th></tr>`;
+}
+
+function addTenseRow(v={inf:"",p1s:"",p2s:"",p3s:"",p1p:"",p2p:"",p3p:""}){
+  const r=$("tenseTable").querySelector("tbody").insertRow();
+  r.insertCell(0).innerHTML=`<input value="${v.inf}">`;
+  TENSE_KEYS.forEach((k,i)=>r.insertCell(i+1).innerHTML=`<input value="${v[k]||''}">`);
+  r.insertCell(7).innerHTML=(tenseMode==="regular"?`<button onclick="autoTense(this)">Auto</button>`:"")+`<button onclick="this.parentNode.parentNode.remove()">X</button>`;
+}
+
+/* ===== AUTO ===== */
+function autoTense(btn){
+  const r=btn.parentNode.parentNode;
+  const inf=r.cells[0].querySelector("input").value.trim();
+  if(!inf)return;
+  if(tenseLang==="de"){
+    if(tenseTime==="present"){let s=inf.replace(/en$|n$/,"");["e","st","t","en","t","en"].forEach((e,i)=>r.cells[i+1].querySelector("input").value=s+e);}
+    else if(tenseTime==="past"){let s=inf.replace(/en$/,"");["te","test","te","ten","tet","ten"].forEach((e,i)=>r.cells[i+1].querySelector("input").value=s+e);}
+    else if(tenseTime==="future"){["werde "+inf,"wirst "+inf,"wird "+inf,"werden "+inf,"werdet "+inf,"werden "+inf].forEach((e,i)=>r.cells[i+1].querySelector("input").value=e);}
+  }
+  if(tenseLang==="fr"){
+    let s=inf.endsWith("er")?inf.slice(0,-2):inf;
+    if(tenseTime==="present"){["e","es","e","ons","ez","ent"].forEach((e,i)=>r.cells[i+1].querySelector("input").value=TENSE_LABELS.fr[i]+" "+s+e);}
+    if(tenseTime==="past"){["ai "+s+"é","as "+s+"é","a "+s+"é","avons "+s+"é","avez "+s+"é","ont "+s+"é"].forEach((e,i)=>r.cells[i+1].querySelector("input").value=e);}
+    if(tenseTime==="future"){["vais "+s,"vas "+s,"va "+s,"allons "+s,"allez "+s,"vont "+s].forEach((e,i)=>r.cells[i+1].querySelector("input").value=e);}
+  }
+  if(tenseLang==="en"){
+    if(tenseTime==="present"){["I","you","he/she/it","we","you","they"].forEach((p,i)=>r.cells[i+1].querySelector("input").value=p+" "+(i===2?inf+"s":inf));}
+    if(tenseTime==="past"){["I","you","he/she/it","we","you","they"].forEach((p,i)=>r.cells[i+1].querySelector("input").value=p+" "+inf+"ed");}
+    if(tenseTime==="future"){["I","you","he/she/it","we","you","they"].forEach((p,i)=>r.cells[i+1].querySelector("input").value=p+" will "+inf);}
+  }
+}
+
+/* ===== SAVE ===== */
+function saveTense(){tenseVerbs=[];for(const r of $("tenseTable").querySelector("tbody").rows){const v={inf:r.cells[0].querySelector("input").value.trim()};TENSE_KEYS.forEach((k,i)=>v[k]=r.cells[i+1].querySelector("input").value.trim());if(v.inf)tenseVerbs.push(v);}localStorage.setItem(tenseDataKey(),JSON.stringify(tenseVerbs));alert("Gespeichert");}
+
+/* ===== QUIZ ===== */
+function startTenseQuiz(){
+  if(!tenseVerbs.length)return alert("Keine Verben");
+  tenseStats={right:0,wrong:0};
+  $("tenseTable").classList.add("hidden");
+  $("tenseQuiz").classList.remove("hidden");
+  nextTense();
+}
+
+function nextTense(){
+  const v=tenseVerbs[Math.floor(Math.random()*tenseVerbs.length)];
+  const i=Math.floor(Math.random()*6);
+  quizTense={v,i};
+  $("tenseQ").innerText=`${TENSE_LABELS[tenseLang][i]} von "${v.inf}" (${tenseTime})`;
+  $("tenseA").value="";
+  $("tenseR").innerText="";
+  updateTenseStats();
+}
+
+$("tenseA").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){
+    const ok=$("tenseA").value.trim().toLowerCase()===quizTense.v[TENSE_KEYS[quizTense.i]].toLowerCase();
+    ok?tenseStats.right++:tenseStats.wrong++;
+    $("tenseR").innerHTML=ok?'<span class="success">✔ Richtig</span>':'<span class="fail">✘ '+quizTense.v[TENSE_KEYS[quizTense.i]]+'</span>';
+    updateTenseStats();
+  }
+});
+
+function updateTenseStats(){$("tenseStats").innerText=`Richtig: ${tenseStats.right} | Falsch: ${tenseStats.wrong}`;}
+function endTenseQuiz(){
+  $("tenseQuiz").classList.add("hidden");
+  $("tenseTable").classList.remove("hidden");
+  alert(`Quiz beendet\nRichtig: ${tenseStats.right}\nFalsch: ${tenseStats.wrong}`);
+}
+</script>
